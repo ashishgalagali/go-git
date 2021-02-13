@@ -21,7 +21,8 @@ type BlameResult struct {
 	// Rev (Revision) is the hash of the specified Commit used to generate this result.
 	Rev plumbing.Hash
 	// Lines contains every line with its authorship.
-	Lines []*Line
+	Lines  []*Line
+	Churns []Churn
 }
 
 // Blame returns a BlameResult with the information about the last author of
@@ -94,11 +95,33 @@ func Blame(c *object.Commit, path string) (*BlameResult, error) {
 		return nil, err
 	}
 
+	Churns := make([]Churn, len(b.selfChurn))
+	for i := 0; i < len(b.selfChurn); i++ {
+		Churns[i] = Churn{
+			CommitID:         b.revs[i].Hash.String(),
+			CommitAuthor:     b.revs[i].Author.Email,
+			Date:             b.revs[i].Author.When.String(),
+			CommitMessage:    b.revs[i].Message,
+			InteractiveChurn: b.interactiveChurn[i],
+			SelfChurn:        b.selfChurn[i],
+		}
+	}
+
 	return &BlameResult{
-		Path:  path,
-		Rev:   c.Hash,
-		Lines: lines,
+		Path:   path,
+		Rev:    c.Hash,
+		Lines:  lines,
+		Churns: Churns,
 	}, nil
+}
+
+type Churn struct {
+	CommitID         string
+	CommitAuthor     string
+	Date             string
+	CommitMessage    string
+	SelfChurn        int
+	InteractiveChurn int
 }
 
 // Line values represent the contents and author of a line in BlamedResult values.
@@ -158,6 +181,10 @@ type blame struct {
 	data []string
 	// the graph of the lines in the file across all the revisions
 	graph [][]*object.Commit
+
+	selfChurn []int
+
+	interactiveChurn []int
 }
 
 // calculate the history of a file "path", starting from commit "from", sorted by commit date.
@@ -173,6 +200,8 @@ func (b *blame) fillGraphAndData() error {
 	//TODO: not all commits are needed, only the current rev and the prev
 	b.graph = make([][]*object.Commit, len(b.revs))
 	b.data = make([]string, len(b.revs)) // file contents in all the revisions
+	b.selfChurn = make([]int, len(b.revs))
+	b.interactiveChurn = make([]int, len(b.revs))
 	// for every revision of the file, starting with the first
 	// one...
 	for i, rev := range b.revs {
@@ -224,6 +253,8 @@ func (b *blame) assignOrigin(c, p int) {
 	hunks := diff.Do(b.data[p], b.data[c])
 	sl := -1 // source line
 	dl := -1 // destination line
+	selfC := 0
+	intaractC := 0
 	for h := range hunks {
 		hLines := countLines(hunks[h].Text)
 		for hl := 0; hl < hLines; hl++ {
@@ -237,11 +268,18 @@ func (b *blame) assignOrigin(c, p int) {
 				b.graph[c][dl] = b.revs[c]
 			case hunks[h].Type == -1:
 				sl++
+				if b.revs[c].Author.Email == b.graph[p][sl].Author.Email {
+					selfC++
+				} else {
+					intaractC++
+				}
 			default:
 				panic("unreachable")
 			}
 		}
 	}
+	b.selfChurn[c] = selfC
+	b.interactiveChurn[c] = intaractC
 }
 
 // GoString prints the results of a Blame using git-blame's style.
