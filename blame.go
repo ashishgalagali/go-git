@@ -4,14 +4,10 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"strconv"
-	"strings"
-	"time"
-	"unicode/utf8"
-
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/utils/diff"
+	"time"
 )
 
 // BlameResult represents the result of a Blame operation.
@@ -27,7 +23,7 @@ type BlameResult struct {
 
 // Blame returns a BlameResult with the information about the last author of
 // each line from file `path` at commit `c`.
-func Blame(c *object.Commit, path string) (*BlameResult, error) {
+func Blame(c, p *object.Commit, path string) (*BlameResult, error) {
 	// The file to blame is identified by the input arguments:
 	// commit and path. commit is a Commit object obtained from a Repository. Path
 	// represents a path to a specific file contained into the repository.
@@ -63,6 +59,7 @@ func Blame(c *object.Commit, path string) (*BlameResult, error) {
 
 	b := new(blame)
 	b.fRev = c
+	b.pRev = p
 	b.path = path
 
 	// get all the file revisions
@@ -76,52 +73,58 @@ func Blame(c *object.Commit, path string) (*BlameResult, error) {
 		return nil, err
 	}
 
-	file, err := b.fRev.File(b.path)
-	if err != nil {
-		return nil, err
-	}
-	finalLines, err := file.Lines()
-	if err != nil {
-		return nil, err
-	}
+	//file, err := b.fRev.File(b.path)
+	//if err != nil {
+	//	return nil, err
+	//}
+	//finalLines, err := file.Lines()
+	//if err != nil {
+	//	return nil, err
+	//}
 
 	// Each node (line) holds the commit where it was introduced or
 	// last modified. To achieve that we use the FORWARD algorithm
 	// described in Zimmermann, et al. "Mining Version Archives for
 	// Co-changed Lines", in proceedings of the Mining Software
 	// Repositories workshop, Shanghai, May 22-23, 2006.
-	lines, err := newLines(finalLines, b.sliceGraph(len(b.graph)-1))
-	if err != nil {
-		return nil, err
-	}
+	//lines, err := newLines(finalLines, b.sliceGraph(len(b.graph)-1))
+	//if err != nil {
+	//	return nil, err
+	//}
 
 	Churns := make([]Churn, len(b.selfChurn))
 	for i := 0; i < len(b.selfChurn); i++ {
 		Churns[i] = Churn{
-			CommitID:         b.revs[i].Hash.String(),
-			CommitAuthor:     b.revs[i].Author.Email,
-			Date:             b.revs[i].Author.When.String(),
-			CommitMessage:    b.revs[i].Message,
-			InteractiveChurn: b.interactiveChurn[i],
-			SelfChurn:        b.selfChurn[i],
+			CommitID:      b.revs[i].Hash.String(),
+			CommitAuthor:  b.revs[i].Author.Email,
+			Date:          b.revs[i].Author.When.String(),
+			CommitMessage: b.revs[i].Message,
+			ChurnFiles:    b.ChurnFiles[i],
 		}
 	}
 
 	return &BlameResult{
-		Path:   path,
-		Rev:    c.Hash,
-		Lines:  lines,
+		Path: path,
+		Rev:  c.Hash,
+		//Lines:  lines,
 		Churns: Churns,
 	}, nil
 }
 
+type ChurnFile struct {
+	FileName  string
+	SelfChurn int
+	//TODO:
+	InteractiveChurn map[string]int // Hash of authors and count
+
+}
+
 type Churn struct {
-	CommitID         string
-	CommitAuthor     string
-	Date             string
-	CommitMessage    string
-	SelfChurn        int
-	InteractiveChurn int
+	CommitID      string
+	CommitAuthor  string
+	Date          string
+	CommitMessage string
+	ChurnFiles    []ChurnFile
 }
 
 // Line values represent the contents and author of a line in BlamedResult values.
@@ -175,86 +178,123 @@ type blame struct {
 	path string
 	// the commit of the final revision of the file to blame
 	fRev *object.Commit
+
+	// the commit of the parent revision of the file to blame till
+	pRev *object.Commit
+
 	// the chain of revisions affecting the the file to blame
 	revs []*object.Commit
 	// the contents of the file across all its revisions
-	data []string
+	//data []string
+	data map[string][]string
+
 	// the graph of the lines in the file across all the revisions
-	graph [][]*object.Commit
+	graph map[string][][]*object.Commit
 
 	selfChurn []int
 
 	interactiveChurn []int
+	ChurnFiles       [][]ChurnFile
 }
 
 // calculate the history of a file "path", starting from commit "from", sorted by commit date.
 func (b *blame) fillRevs() error {
 	var err error
 
-	b.revs, err = references(b.fRev, b.path)
+	b.revs, err = references(b.fRev, b.pRev, b.path)
 	return err
 }
 
 // build graph of a file from its revision history
 func (b *blame) fillGraphAndData() error {
 	//TODO: not all commits are needed, only the current rev and the prev
-	b.graph = make([][]*object.Commit, len(b.revs))
-	b.data = make([]string, len(b.revs)) // file contents in all the revisions
+	//b.graph = make([][]*object.Commit, len(b.revs))
+	b.graph = make(map[string][][]*object.Commit)
+	//b.data = make([]string, len(b.revs)) // file contents in all the revisions
+	b.data = make(map[string][]string)
 	b.selfChurn = make([]int, len(b.revs))
 	b.interactiveChurn = make([]int, len(b.revs))
+	b.ChurnFiles = make([][]ChurnFile, len(b.revs))
 	// for every revision of the file, starting with the first
 	// one...
+
 	for i, rev := range b.revs {
-		// get the contents of the file
-		file, err := rev.File(b.path)
-		if err != nil {
-			return nil
+		if rev.Hash.String() == "5a2bf9f4da3de056dde3d9a9c18859de124d2602"{
+			fmt.Println("STOP")
 		}
-		b.data[i], err = file.Contents()
-		if err != nil {
-			return err
-		}
-		nLines := countLines(b.data[i])
-		// create a node for each line
-		b.graph[i] = make([]*object.Commit, nLines)
-		// assign a commit to each node
-		// if this is the first revision, then the node is assigned to
-		// this first commit.
-		if i == 0 {
-			for j := 0; j < nLines; j++ {
-				b.graph[i][j] = b.revs[i]
+		ittr, _ := rev.Files()
+		commitFiles := make([]ChurnFile, 0)
+		for {
+			file, err := ittr.Next()
+			if file == nil {
+				break
 			}
-		} else {
-			// if this is not the first commit, then assign to the old
-			// commit or to the new one, depending on what the diff
-			// says.
-			b.assignOrigin(i, i-1)
+			churnDetails := new(ChurnFile)
+			churnDetails.FileName = file.Name
+			// get the contents of the file
+			//file, err := rev.Filele(b.path)
+			if err != nil {
+				return nil
+			}
+			if _, ok := b.data[file.Name]; !ok {
+				//do something here
+				b.data[file.Name] = make([]string, len(b.revs))
+			}
+			b.data[file.Name][i], err = file.Contents()
+			if err != nil {
+				return err
+			}
+			nLines := countLines(b.data[file.Name][i])
+			// create a node for each line
+			if _, ok := b.graph[file.Name]; !ok {
+				//do something here
+				b.graph[file.Name] = make([][]*object.Commit, len(b.revs))
+			}
+			b.graph[file.Name][i] = make([]*object.Commit, nLines)
+			// assign a commit to each node
+			// if this is the first revision, then the node is assigned to
+			// this first commit.
+			if i == 0 {
+				for j := 0; j < nLines; j++ {
+					b.graph[file.Name][i][j] = b.revs[i]
+				}
+			} else {
+				// if this is not the first commit, then assign to the old
+				// commit or to the new one, depending on what the diff
+				// says.
+				b.assignOrigin(i, i-1, churnDetails)
+			}
+			if len(churnDetails.InteractiveChurn) != 0 || churnDetails.SelfChurn != 0 {
+				commitFiles = append(commitFiles, *churnDetails)
+			}
 		}
+		b.ChurnFiles[i] = commitFiles
 	}
 	return nil
 }
 
 // sliceGraph returns a slice of commits (one per line) for a particular
 // revision of a file (0=first revision).
-func (b *blame) sliceGraph(i int) []*object.Commit {
-	fVs := b.graph[i]
-	result := make([]*object.Commit, 0, len(fVs))
-	for _, v := range fVs {
-		c := *v
-		result = append(result, &c)
-	}
-	return result
-}
+//func (b *blame) sliceGraph(i int) []*object.Commit {
+//	fVs := b.graph[i]
+//	result := make([]*object.Commit, 0, len(fVs))
+//	for _, v := range fVs {
+//		c := *v
+//		result = append(result, &c)
+//	}
+//	return result
+//}
 
 // Assigns origin to vertexes in current (c) rev from data in its previous (p)
 // revision
-func (b *blame) assignOrigin(c, p int) {
+func (b *blame) assignOrigin(c, p int, churnDetails *ChurnFile) {
 	// assign origin based on diff info
-	hunks := diff.Do(b.data[p], b.data[c])
+	hunks := diff.Do(b.data[churnDetails.FileName][p], b.data[churnDetails.FileName][c])
+
 	sl := -1 // source line
 	dl := -1 // destination line
-	selfC := 0
-	intaractC := 0
+	//selfC := 0
+	//intaractC := 0
 	for h := range hunks {
 		hLines := countLines(hunks[h].Text)
 		for hl := 0; hl < hLines; hl++ {
@@ -262,52 +302,57 @@ func (b *blame) assignOrigin(c, p int) {
 			case hunks[h].Type == 0:
 				sl++
 				dl++
-				b.graph[c][dl] = b.graph[p][sl]
+				b.graph[churnDetails.FileName][c][dl] = b.graph[churnDetails.FileName][p][sl]
 			case hunks[h].Type == 1:
 				dl++
-				b.graph[c][dl] = b.revs[c]
+				b.graph[churnDetails.FileName][c][dl] = b.revs[c]
 			case hunks[h].Type == -1:
 				sl++
-				if b.revs[c].Author.Email == b.graph[p][sl].Author.Email {
-					selfC++
+				if b.revs[c].Author.Email == b.graph[churnDetails.FileName][p][sl].Author.Email {
+					churnDetails.SelfChurn++
 				} else {
-					intaractC++
+					ichurn := churnDetails.InteractiveChurn[b.graph[churnDetails.FileName][p][sl].Author.Email]
+					if ichurn == 0 {
+						churnDetails.InteractiveChurn = make(map[string]int)
+					}
+					ichurn++
+					churnDetails.InteractiveChurn[b.graph[churnDetails.FileName][p][sl].Author.Email] = ichurn
 				}
 			default:
 				panic("unreachable")
 			}
 		}
 	}
-	b.selfChurn[c] = selfC
-	b.interactiveChurn[c] = intaractC
+	//b.selfChurn[c] = selfC
+	//b.interactiveChurn[c] = intaractC
 }
 
 // GoString prints the results of a Blame using git-blame's style.
 func (b *blame) GoString() string {
 	var buf bytes.Buffer
 
-	file, err := b.fRev.File(b.path)
-	if err != nil {
-		panic("PrettyPrint: internal error in repo.Data")
-	}
-	contents, err := file.Contents()
-	if err != nil {
-		panic("PrettyPrint: internal error in repo.Data")
-	}
+	//file, err := b.fRev.File(b.path)
+	//if err != nil {
+	//	panic("PrettyPrint: internal error in repo.Data")
+	//}
+	//contents, err := file.Contents()
+	//if err != nil {
+	//	panic("PrettyPrint: internal error in repo.Data")
+	//}
+	//
+	//lines := strings.Split(contents, "\n")
+	//// max line number length
+	//mlnl := len(strconv.Itoa(len(lines)))
+	//// max author length
+	//mal := b.maxAuthorLength()
+	//format := fmt.Sprintf("%%s (%%-%ds %%%dd) %%s\n",
+	//	mal, mlnl)
 
-	lines := strings.Split(contents, "\n")
-	// max line number length
-	mlnl := len(strconv.Itoa(len(lines)))
-	// max author length
-	mal := b.maxAuthorLength()
-	format := fmt.Sprintf("%%s (%%-%ds %%%dd) %%s\n",
-		mal, mlnl)
-
-	fVs := b.graph[len(b.graph)-1]
-	for ln, v := range fVs {
-		fmt.Fprintf(&buf, format, v.Hash.String()[:8],
-			prettyPrintAuthor(fVs[ln]), ln+1, lines[ln])
-	}
+	//fVs := b.graph[len(b.graph)-1]
+	//for ln, v := range fVs {
+	//	fmt.Fprintf(&buf, format, v.Hash.String()[:8],
+	//		prettyPrintAuthor(fVs[ln]), ln+1, lines[ln])
+	//}
 	return buf.String()
 }
 
@@ -318,19 +363,19 @@ func prettyPrintAuthor(c *object.Commit) string {
 
 // utility function to calculate the number of runes needed
 // to print the longest author name in the blame of a file.
-func (b *blame) maxAuthorLength() int {
-	memo := make(map[plumbing.Hash]struct{}, len(b.graph)-1)
-	fVs := b.graph[len(b.graph)-1]
-	m := 0
-	for ln := range fVs {
-		if _, ok := memo[fVs[ln].Hash]; ok {
-			continue
-		}
-		memo[fVs[ln].Hash] = struct{}{}
-		m = max(m, utf8.RuneCountInString(prettyPrintAuthor(fVs[ln])))
-	}
-	return m
-}
+//func (b *blame) maxAuthorLength() int {
+//	memo := make(map[plumbing.Hash]struct{}, len(b.graph)-1)
+//	fVs := b.graph[len(b.graph)-1]
+//	m := 0
+//	for ln := range fVs {
+//		if _, ok := memo[fVs[ln].Hash]; ok {
+//			continue
+//		}
+//		memo[fVs[ln].Hash] = struct{}{}
+//		m = max(m, utf8.RuneCountInString(prettyPrintAuthor(fVs[ln])))
+//	}
+//	return m
+//}
 
 func max(a, b int) int {
 	if a > b {

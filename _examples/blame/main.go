@@ -14,26 +14,28 @@ import (
 func main() {
 
 	defer fmt.Println(time.Since(time.Now()))
-	r := Checkout("https://github.com/apache/struts", "4b1262ef0fdf72aa3bbdf601e0fa3a255561e3c8")
+	r := Checkout("https://github.com/ashishgalagali/SWEN610-project", "7368d5fcb7eec950161ed9d13b55caf5961326b6")
 
-	h, err := r.ResolveRevision(plumbing.Revision("4b1262ef0fdf72aa3bbdf601e0fa3a255561e3c8"))
+	h, err := r.ResolveRevision(plumbing.Revision("7368d5fcb7eec950161ed9d13b55caf5961326b6"))
 	CheckIfError(err)
 	commitObj, err := r.CommitObject(*h)
 	CheckIfError(err)
 
+	//hp, err := r.ResolveRevision(plumbing.Revision("79caa008ba1f9d06b34b4acc7c03d7fade185a63"))
+	//CheckIfError(err)
+	//
+	//parentCommitObj, err := r.CommitObject(*hp)
+	//CheckIfError(err)
+
 	//TODO: blame is now specific to a file
 	//TODO: Aggregation over all the files and for a range of commits
-	//TODO: Create detailed 2D matrix similar to the hercules override matrix
 	//TODO: Performance
-	// TODO: check diff 16/24
+	//TODO: Create detailed 2D matrix similar to the hercules override matrix
 
-
-
-
-	blame, err := git.Blame(commitObj, "README.md")
+	blame, err := git.Blame(commitObj, nil, "")
 	//println(blame.Churns)
 
-	print(blame.Churns)
+	//print(blame.)
 	if err == nil {
 		for _, churn := range blame.Churns {
 			// Convert structs to JSON.

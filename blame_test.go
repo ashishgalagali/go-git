@@ -55,7 +55,7 @@ func (s *BlameSuite) TestBlame(c *C) {
 		commit, err := r.CommitObject(plumbing.NewHash(t.rev))
 		c.Assert(err, IsNil)
 
-		obt, err := Blame(commit, t.path)
+		obt, err := Blame(commit, nil, t.path)
 		c.Assert(err, IsNil)
 		c.Assert(obt, DeepEquals, exp)
 
