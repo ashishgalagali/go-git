@@ -23,7 +23,7 @@ type BlameResult struct {
 
 // Blame returns a BlameResult with the information about the last author of
 // each line from file `path` at commit `c`.
-func Blame(c, p *object.Commit, path string) (*BlameResult, error) {
+func Blame(c *object.Commit, path string) (*BlameResult, error) {
 	// The file to blame is identified by the input arguments:
 	// commit and path. commit is a Commit object obtained from a Repository. Path
 	// represents a path to a specific file contained into the repository.
@@ -59,7 +59,7 @@ func Blame(c, p *object.Commit, path string) (*BlameResult, error) {
 
 	b := new(blame)
 	b.fRev = c
-	b.pRev = p
+	//b.pRev = p
 	b.path = path
 
 	// get all the file revisions
@@ -180,7 +180,7 @@ type blame struct {
 	fRev *object.Commit
 
 	// the commit of the parent revision of the file to blame till
-	pRev *object.Commit
+	//pRev *object.Commit
 
 	// the chain of revisions affecting the the file to blame
 	revs []*object.Commit
@@ -190,6 +190,8 @@ type blame struct {
 
 	// the graph of the lines in the file across all the revisions
 	graph map[string][][]*object.Commit
+
+	commitIndexMap map[string]int
 
 	selfChurn []int
 
@@ -201,7 +203,7 @@ type blame struct {
 func (b *blame) fillRevs() error {
 	var err error
 
-	b.revs, err = references(b.fRev, b.pRev, b.path)
+	b.revs, err = references(b.fRev, b.path)
 	return err
 }
 
@@ -215,13 +217,24 @@ func (b *blame) fillGraphAndData() error {
 	b.selfChurn = make([]int, len(b.revs))
 	b.interactiveChurn = make([]int, len(b.revs))
 	b.ChurnFiles = make([][]ChurnFile, len(b.revs))
+	b.commitIndexMap = make(map[string]int)
+
+	for i, rev := range b.revs {
+		b.commitIndexMap[rev.Hash.String()] = i
+	}
+
 	// for every revision of the file, starting with the first
 	// one...
 
 	for i, rev := range b.revs {
-		if rev.Hash.String() == "5a2bf9f4da3de056dde3d9a9c18859de124d2602"{
-			fmt.Println("STOP")
-		}
+		//cTree, _ := rev.Tree()
+		//if rev.Hash.String() == "9708c9a9da36928fd0b7143c74aa61694999fe5d"{
+		//	fmt.Println("STOP")
+		//	pTree, _ := b.revs[i-1].Tree()
+		//	changes, _ := cTree.Diff(pTree)
+		//	print(changes)
+		//}
+
 		ittr, _ := rev.Files()
 		commitFiles := make([]ChurnFile, 0)
 		for {
@@ -262,7 +275,23 @@ func (b *blame) fillGraphAndData() error {
 				// if this is not the first commit, then assign to the old
 				// commit or to the new one, depending on what the diff
 				// says.
-				b.assignOrigin(i, i-1, churnDetails)
+
+				//if strings.Contains(rev.Message, "Merge pull request"){
+				//	continue
+				//}
+				nearestParent := len(b.revs) + 1
+				iter := rev.Parents()
+				for {
+					parent, _ := iter.Next()
+					if parent == nil {
+						break
+					}
+					parentIndex := b.commitIndexMap[parent.Hash.String()]
+					if nearestParent > parentIndex {
+						nearestParent = parentIndex
+					}
+				}
+				b.assignOrigin(i, nearestParent, churnDetails)
 			}
 			if len(churnDetails.InteractiveChurn) != 0 || churnDetails.SelfChurn != 0 {
 				commitFiles = append(commitFiles, *churnDetails)

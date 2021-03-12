@@ -24,10 +24,10 @@ import (
 // - Cherry-picks are not detected unless there are no commits between them and
 // therefore can appear repeated in the list. (see git path-id for hints on how
 // to fix this).
-func references(c, p *object.Commit, path string) ([]*object.Commit, error) {
+func references(c *object.Commit, path string) ([]*object.Commit, error) {
 	var result []*object.Commit
 	seen := make(map[plumbing.Hash]struct{})
-	if err := walkGraph(&result, &seen, c, p, path); err != nil {
+	if err := walkGraph(&result, &seen, c, path); err != nil {
 		return nil, err
 	}
 
@@ -35,7 +35,7 @@ func references(c, p *object.Commit, path string) ([]*object.Commit, error) {
 	sortCommits(result)
 
 	// for merges of identical cherry-picks
-	if path == ""{
+	if path == "" {
 		return result, nil
 	}
 	return removeComp(path, result, equivalent)
@@ -67,14 +67,14 @@ func sortCommits(l []*object.Commit) {
 
 // Recursive traversal of the commit graph, generating a linear history of the
 // path.
-func walkGraph(result *[]*object.Commit, seen *map[plumbing.Hash]struct{}, current, parent *object.Commit,  path string) error {
+func walkGraph(result *[]*object.Commit, seen *map[plumbing.Hash]struct{}, current *object.Commit, path string) error {
 	// check and update seen
 	if _, ok := (*seen)[current.Hash]; ok {
 		return nil
 	}
-	if parent != nil && parent.Hash.String() == current.Hash.String() {
-		return nil
-	}
+	//if parent != nil && parent.Hash.String() == current.Hash.String() {
+	//	return nil
+	//}
 	//lastCommit := (*result)[len(*result)-1]
 	//if parent == lastCommit{
 	//	return nil
@@ -113,16 +113,17 @@ func walkGraph(result *[]*object.Commit, seen *map[plumbing.Hash]struct{}, curre
 			if len(different) == 1 {
 				*result = append(*result, current)
 			}
-		}else{
+		} else {
 			*result = append(*result, current)
 		}
 		// in any case, walk the parent
-		return walkGraph(result, seen, parents[0], parent, path)
+		return walkGraph(result, seen, parents[0], path)
 	default: // more than one parent contains the path
 		// TODO: detect merges that had a conflict, because they must be
 		// included in the result here.
+		*result = append(*result, current)
 		for _, p := range parents {
-			err := walkGraph(result, seen, p, parent, path)
+			err := walkGraph(result, seen, p, path)
 			if err != nil {
 				return err
 			}
@@ -151,7 +152,7 @@ func parentsContainingPath(path string, c *object.Commit) ([]*object.Commit, err
 			if _, err := parent.File(path); err == nil {
 				result = append(result, parent)
 			}
-		}else{
+		} else {
 			result = append(result, parent)
 		}
 	}

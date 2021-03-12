@@ -32,7 +32,7 @@ func main() {
 	//TODO: Performance
 	//TODO: Create detailed 2D matrix similar to the hercules override matrix
 
-	blame, err := git.Blame(commitObj, nil, "")
+	blame, err := git.Blame(commitObj, "")
 	//println(blame.Churns)
 
 	//print(blame.)
