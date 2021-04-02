@@ -7,6 +7,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/utils/diff"
+	"strings"
 	"time"
 )
 
@@ -113,10 +114,9 @@ func Blame(c *object.Commit, path string) (*BlameResult, error) {
 
 type ChurnFile struct {
 	FileName  string
-	SelfChurn int
+	SelfChurn []int
 	//TODO:
-	InteractiveChurn map[string]int // Hash of authors and count
-
+	InteractiveChurn map[string][]int // Hash of authors and count
 }
 
 type Churn struct {
@@ -228,8 +228,9 @@ func (b *blame) fillGraphAndData() error {
 
 	for i, rev := range b.revs {
 		//cTree, _ := rev.Tree()
-		//if rev.Hash.String() == "9708c9a9da36928fd0b7143c74aa61694999fe5d"{
+		//if rev.Hash.String() == "e15b720263903680264fdfb124749b6f386d51e6" {
 		//	fmt.Println("STOP")
+		//}
 		//	pTree, _ := b.revs[i-1].Tree()
 		//	changes, _ := cTree.Diff(pTree)
 		//	print(changes)
@@ -279,21 +280,45 @@ func (b *blame) fillGraphAndData() error {
 				//if strings.Contains(rev.Message, "Merge pull request"){
 				//	continue
 				//}
+				//Setting it to MAX=1
 				nearestParent := len(b.revs) + 1
 				iter := rev.Parents()
+				count := 0
 				for {
 					parent, _ := iter.Next()
 					if parent == nil {
 						break
 					}
+					count++
+					//if count > 1 && strings.Contains(parent.Message, "Merge pull request") {
+					//	break
+					//}
+					//if count > 1 {
+					//	break
+					//}
 					parentIndex := b.commitIndexMap[parent.Hash.String()]
 					if nearestParent > parentIndex {
+						if count>1{
+							if !strings.Contains(parent.Message, "Merge pull request"){
+								nearestParent = parentIndex
+							}
+						}else {
+							nearestParent = parentIndex
+						}
+					}else if !strings.Contains(parent.Message, "Merge pull request"){
 						nearestParent = parentIndex
 					}
+					//if nearestParent > parentIndex {
+					//	nearestParent = parentIndex
+					//}
 				}
-				b.assignOrigin(i, nearestParent, churnDetails)
+				if count == 1 {
+					b.assignOrigin(i, nearestParent, churnDetails, false)
+				} else {
+					b.assignOrigin(i, nearestParent, churnDetails, true)
+				}
 			}
-			if len(churnDetails.InteractiveChurn) != 0 || churnDetails.SelfChurn != 0 {
+			if len(churnDetails.InteractiveChurn) != 0 || len(churnDetails.SelfChurn) != 0 {
 				commitFiles = append(commitFiles, *churnDetails)
 			}
 		}
@@ -316,7 +341,7 @@ func (b *blame) fillGraphAndData() error {
 
 // Assigns origin to vertexes in current (c) rev from data in its previous (p)
 // revision
-func (b *blame) assignOrigin(c, p int, churnDetails *ChurnFile) {
+func (b *blame) assignOrigin(c, p int, churnDetails *ChurnFile, copyAsIs bool) {
 	// assign origin based on diff info
 	hunks := diff.Do(b.data[churnDetails.FileName][p], b.data[churnDetails.FileName][c])
 
@@ -334,17 +359,27 @@ func (b *blame) assignOrigin(c, p int, churnDetails *ChurnFile) {
 				b.graph[churnDetails.FileName][c][dl] = b.graph[churnDetails.FileName][p][sl]
 			case hunks[h].Type == 1:
 				dl++
-				b.graph[churnDetails.FileName][c][dl] = b.revs[c]
+				if copyAsIs {
+					if strings.Contains(b.revs[p].Message, "Merge pull request"){
+						fmt.Println(b.revs[c].Hash.String())
+					}
+					b.graph[churnDetails.FileName][c][dl] = b.revs[p]
+				}else{
+					if strings.Contains(b.revs[c].Message, "Merge pull request"){
+						fmt.Println(b.revs[c].Hash.String())
+					}
+					b.graph[churnDetails.FileName][c][dl] = b.revs[c]
+				}
 			case hunks[h].Type == -1:
 				sl++
 				if b.revs[c].Author.Email == b.graph[churnDetails.FileName][p][sl].Author.Email {
-					churnDetails.SelfChurn++
+					churnDetails.SelfChurn = append(churnDetails.SelfChurn, sl+1)
 				} else {
 					ichurn := churnDetails.InteractiveChurn[b.graph[churnDetails.FileName][p][sl].Author.Email]
-					if ichurn == 0 {
-						churnDetails.InteractiveChurn = make(map[string]int)
+					if len(ichurn) == 0 {
+						churnDetails.InteractiveChurn = make(map[string][]int)
 					}
-					ichurn++
+					ichurn = append(ichurn, sl+1)
 					churnDetails.InteractiveChurn[b.graph[churnDetails.FileName][p][sl].Author.Email] = ichurn
 				}
 			default:
