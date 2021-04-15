@@ -2,6 +2,7 @@ package git
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -93,8 +94,8 @@ func Blame(c *object.Commit, path string) (*BlameResult, error) {
 	//	return nil, err
 	//}
 
-	Churns := make([]Churn, len(b.selfChurn))
-	for i := 0; i < len(b.selfChurn); i++ {
+	Churns := make([]Churn, len(b.revs))
+	for i := 0; i < len(b.revs); i++ {
 		Churns[i] = Churn{
 			CommitID:      b.revs[i].Hash.String(),
 			CommitAuthor:  b.revs[i].Author.Email,
@@ -193,10 +194,7 @@ type blame struct {
 
 	commitIndexMap map[string]int
 
-	selfChurn []int
-
-	interactiveChurn []int
-	ChurnFiles       [][]ChurnFile
+	ChurnFiles [][]ChurnFile
 }
 
 // calculate the history of a file "path", starting from commit "from", sorted by commit date.
@@ -214,8 +212,6 @@ func (b *blame) fillGraphAndData() error {
 	b.graph = make(map[string][][]*object.Commit)
 	//b.data = make([]string, len(b.revs)) // file contents in all the revisions
 	b.data = make(map[string][]string)
-	b.selfChurn = make([]int, len(b.revs))
-	b.interactiveChurn = make([]int, len(b.revs))
 	b.ChurnFiles = make([][]ChurnFile, len(b.revs))
 	b.commitIndexMap = make(map[string]int)
 
@@ -298,14 +294,14 @@ func (b *blame) fillGraphAndData() error {
 					//}
 					parentIndex := b.commitIndexMap[parent.Hash.String()]
 					if nearestParent > parentIndex {
-						if count>1{
-							if !strings.Contains(parent.Message, "Merge pull request"){
+						if count > 1 {
+							if !strings.Contains(parent.Message, "Merge pull request") {
 								nearestParent = parentIndex
 							}
-						}else {
+						} else {
 							nearestParent = parentIndex
 						}
-					}else if !strings.Contains(parent.Message, "Merge pull request"){
+					} else if !strings.Contains(parent.Message, "Merge pull request") {
 						nearestParent = parentIndex
 					}
 					//if nearestParent > parentIndex {
@@ -322,7 +318,19 @@ func (b *blame) fillGraphAndData() error {
 				commitFiles = append(commitFiles, *churnDetails)
 			}
 		}
-		b.ChurnFiles[i] = commitFiles
+		//if len(commitFiles) != 0 {
+		//b.ChurnFiles[i] = commitFiles
+		churn := Churn{
+			CommitID:      b.revs[i].Hash.String(),
+			CommitAuthor:  b.revs[i].Author.Email,
+			Date:          b.revs[i].Author.When.String(),
+			CommitMessage: b.revs[i].Message,
+			ChurnFiles:    commitFiles,
+		}
+		data, _ := json.Marshal(churn)
+		fmt.Printf("%s\n", data)
+		fmt.Println("\n")
+		//}
 	}
 	return nil
 }
@@ -347,8 +355,6 @@ func (b *blame) assignOrigin(c, p int, churnDetails *ChurnFile, copyAsIs bool) {
 
 	sl := -1 // source line
 	dl := -1 // destination line
-	//selfC := 0
-	//intaractC := 0
 	for h := range hunks {
 		hLines := countLines(hunks[h].Text)
 		for hl := 0; hl < hLines; hl++ {
@@ -360,14 +366,14 @@ func (b *blame) assignOrigin(c, p int, churnDetails *ChurnFile, copyAsIs bool) {
 			case hunks[h].Type == 1:
 				dl++
 				if copyAsIs {
-					if strings.Contains(b.revs[p].Message, "Merge pull request"){
-						fmt.Println(b.revs[c].Hash.String())
-					}
+					//if strings.Contains(b.revs[p].Message, "Merge pull request") {
+					//	fmt.Println(b.revs[c].Hash.String())
+					//}
 					b.graph[churnDetails.FileName][c][dl] = b.revs[p]
-				}else{
-					if strings.Contains(b.revs[c].Message, "Merge pull request"){
-						fmt.Println(b.revs[c].Hash.String())
-					}
+				} else {
+					//if strings.Contains(b.revs[c].Message, "Merge pull request") {
+					//	fmt.Println(b.revs[c].Hash.String())
+					//}
 					b.graph[churnDetails.FileName][c][dl] = b.revs[c]
 				}
 			case hunks[h].Type == -1:
@@ -387,10 +393,12 @@ func (b *blame) assignOrigin(c, p int, churnDetails *ChurnFile, copyAsIs bool) {
 			}
 		}
 	}
-	//b.selfChurn[c] = selfC
-	//b.interactiveChurn[c] = intaractC
+	if c-20 > 0 {
+		b.graph[churnDetails.FileName][c-20] = make([]*object.Commit, 0)
+		b.data[churnDetails.FileName][c-20] = ""
+	}
 }
-
+	
 // GoString prints the results of a Blame using git-blame's style.
 func (b *blame) GoString() string {
 	var buf bytes.Buffer

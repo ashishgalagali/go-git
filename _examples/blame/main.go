@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/go-git/go-billy/v5/memfs"
 	"github.com/go-git/go-git/v5"
@@ -27,23 +26,21 @@ func main() {
 	//parentCommitObj, err := r.CommitObject(*hp)
 	//CheckIfError(err)
 
-	//TODO: blame is now specific to a file
-	//TODO: Aggregation over all the files and for a range of commits
 	//TODO: Performance
 	//TODO: Create detailed 2D matrix similar to the hercules override matrix
 
-	blame, err := git.Blame(commitObj, "")
+	_, _ = git.Blame(commitObj, "")
 	//println(blame.Churns)
 
 	//print(blame.)
-	if err == nil {
-		for _, churn := range blame.Churns {
-			// Convert structs to JSON.
-			data, _ := json.Marshal(churn)
-			fmt.Printf("%s\n", data)
-			fmt.Println("\n")
-		}
-	}
+	//if err == nil {
+	//	for _, churn := range blame.Churns {
+	//		// Convert structs to JSON.
+	//		data, _ := json.Marshal(churn)
+	//		fmt.Printf("%s\n", data)
+	//		fmt.Println("\n")
+	//	}
+	//}
 
 }
 
